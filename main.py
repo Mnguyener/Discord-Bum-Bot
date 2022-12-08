@@ -26,6 +26,8 @@ def roll_die(e):
     if 99 >= e >= 2:
         return random.randrange(1, e + 1)  # rand num
 
+intents = discord.Intents.default()
+intents.message_content = True
 class MyClient(discord.Client):
     async def on_ready(self):
         print('Logged on as {0}!'.format(self.user))
@@ -90,7 +92,7 @@ class MyClient(discord.Client):
         print('Message from {0.author}: {0.content}'.format(message))
 
 
-client = MyClient()
+client = MyClient(intents=intents)
 with open("first-bot-token.txt") as f:
     content = f.read()
 client.run(content)

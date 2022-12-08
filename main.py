@@ -4,10 +4,18 @@ import discord
 
 import re
 
+import sqlite3
+
+
+con = sqlite3.connect("messages.db")
+cur = con.cursor()
+print("Connected to SQLite")
+cur.execute("""CREATE TABLE IF NOT EXISTS reactions (server INTEGER NOT NULL, creator INTEGER NOT NULL, key TEXT, 
+value TEXT, time DATETIME)""")
+
 def roll_die(e):
     if 99 >= e >= 2:
         return random.randrange(1, e + 1)  # rand num
-
 
 class MyClient(discord.Client):
     async def on_ready(self):

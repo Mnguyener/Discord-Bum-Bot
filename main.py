@@ -24,7 +24,25 @@ def insert_rxn(_server, _creator, _key, _value, _time):
 
     except sqlite3.Error as error:
         print(error)
-
+def view_react(_key) -> "list":
+    try:
+        key_list = []
+        rows_returned = cur.execute("""SELECT value FROM reactions WHERE key LIKE ?""", ["%" + _key + "%"])
+        for row in rows_returned:
+            key_list.append(row[0])
+        return key_list
+    except sqlite3.Error as error:
+        print(error)
+def view_all_react() -> "list":
+    try:
+        key_list = []
+        rows_returned = cur.execute("""SELECT creator, key, value, time FROM reactions""")
+        for row in rows_returned:
+            key_list.append(row)
+        return key_list
+        output = table2ascii()
+    except sqlite3.Error as error:
+        print(error)
 
 def roll_die(e):
     if 99 >= e >= 2:
@@ -33,7 +51,6 @@ def roll_die(e):
 
 intents = discord.Intents.default()
 intents.message_content = True
-
 
 class MyClient(discord.Client):
     async def on_ready(self):
@@ -71,7 +88,19 @@ class MyClient(discord.Client):
                 await message.reply("Reaction added!")
             else:
                 await message.reply("Syntax error.")
-
+        if args[0] == "$view":
+            if len(args) < 2:
+                await message.reply("Please specify all or a specific key.")
+                return
+            elif args[1] == "all":
+                pair_list = view_all_react()
+                await message.reply(pair_list)
+            else:
+                pair_list = view_react(args[1])
+                if not pair_list:
+                    await message.reply("This key is not present in the table.")
+                else:
+                    await message.reply(pair_list)
         if args[0] == "$roll":
             if len(args) == 1:
                 # error state: not enough arguments

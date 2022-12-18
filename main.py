@@ -8,12 +8,12 @@ import sqlite3
 
 from datetime import datetime  # reference to the class instead of just the module
 
+from table2ascii import table2ascii, PresetStyle # may not need
 con = sqlite3.connect("messages.db")
 cur = con.cursor()
 print("Connected to SQLite")
 cur.execute("""CREATE TABLE IF NOT EXISTS reactions (server INTEGER NOT NULL, creator INTEGER NOT NULL, key TEXT, 
-value TEXT, time DATETIME)""")
-
+value TEXT NOT NULL UNIQUE, time DATETIME)""")
 
 def insert_rxn(_server, _creator, _key, _value, _time):
     try:
@@ -21,9 +21,11 @@ def insert_rxn(_server, _creator, _key, _value, _time):
                     [_server, _creator, _key, _value, _time])  # tuple
         con.commit()  # save changes
         print("inserted")
+        return 0
 
     except sqlite3.Error as error:
         print(error)
+        return 1
 def view_react(_key) -> "list":
     try:
         key_list = []
@@ -49,8 +51,6 @@ def roll_die(e):
         return random.randrange(1, e + 1)  # rand num
 
 
-intents = discord.Intents.default()
-intents.message_content = True
 
 class MyClient(discord.Client):
     async def on_ready(self):
@@ -70,6 +70,8 @@ class MyClient(discord.Client):
         #     await message.reply("water spout")
 
         args = message.content.split()
+        if len(args) == 0:
+            return # ignore empty messages
         # adding reactions to the table
         if args[0] == "$add":
             msg_stripped = message.content[len("$add"):]
@@ -84,8 +86,11 @@ class MyClient(discord.Client):
                 print(f"key:{key} value:{value}")
                 time = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
                 print(f"time is {time}")
-                insert_rxn(server, creator, key, value, time)
-                await message.reply("Reaction added!")
+                success = insert_rxn(server, creator, key, value, time)
+                if success == 0:
+                    await message.reply("Reaction added!")
+                else:
+                    await message.reply("Error: value has already been added!")
             else:
                 await message.reply("Syntax error.")
         if args[0] == "$view":
@@ -130,7 +135,8 @@ class MyClient(discord.Client):
 
         print('Message from {0.author}: {0.content}'.format(message))
 
-
+intents = discord.Intents.default()
+intents.message_content = True
 client = MyClient(intents=intents)
 with open("first-bot-token.txt") as f:
     content = f.read()

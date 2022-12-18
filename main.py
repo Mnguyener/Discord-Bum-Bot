@@ -4,9 +4,52 @@ import discord
 
 import re
 
+import sqlite3
+
+from datetime import datetime  # reference to the class instead of just the module
+
+from table2ascii import table2ascii, PresetStyle # may not need
+con = sqlite3.connect("messages.db")
+cur = con.cursor()
+print("Connected to SQLite")
+cur.execute("""CREATE TABLE IF NOT EXISTS reactions (server INTEGER NOT NULL, creator INTEGER NOT NULL, key TEXT, 
+value TEXT NOT NULL UNIQUE, time DATETIME)""")
+
+def insert_rxn(_server, _creator, _key, _value, _time):
+    try:
+        cur.execute("""INSERT into reactions (server, creator, key, value, time) VALUES (?,?,?,?,?)""",
+                    [_server, _creator, _key, _value, _time])  # tuple
+        con.commit()  # save changes
+        print("inserted")
+        return 0
+
+    except sqlite3.Error as error:
+        print(error)
+        return 1
+def view_react(_key) -> "list":
+    try:
+        key_list = []
+        rows_returned = cur.execute("""SELECT value FROM reactions WHERE key LIKE ?""", ["%" + _key + "%"])
+        for row in rows_returned:
+            key_list.append(row[0])
+        return key_list
+    except sqlite3.Error as error:
+        print(error)
+def view_all_react() -> "list":
+    try:
+        key_list = []
+        rows_returned = cur.execute("""SELECT creator, key, value, time FROM reactions""")
+        for row in rows_returned:
+            key_list.append(row)
+        return key_list
+        output = table2ascii()
+    except sqlite3.Error as error:
+        print(error)
+
 def roll_die(e):
     if 99 >= e >= 2:
         return random.randrange(1, e + 1)  # rand num
+
 
 
 class MyClient(discord.Client):
@@ -21,10 +64,48 @@ class MyClient(discord.Client):
 
         if message.content.lower() == "l":
             await message.reply("+ ratio")
-        if message.content.lower().find("tomatos") != -1 or message.content.lower().find("tomato") != -1:
-            await message.reply("water spout")
+        # if message.content.lower().find("yo") != -1 or message.content.lower().find("joe") != -1:
+        #     await message.reply("mama")
+        # if message.content.lower().find("tomatos") != -1 or message.content.lower().find("tomato") != -1:
+        #     await message.reply("water spout")
 
         args = message.content.split()
+        if len(args) == 0:
+            return # ignore empty messages
+        # adding reactions to the table
+        if args[0] == "$add":
+            msg_stripped = message.content[len("$add"):]
+            comma_idx = msg_stripped.find(",")
+            if comma_idx != -1:
+                server = message.guild.id
+                creator = str(message.author.id)
+                print(f"this is my id: {creator} and my server id: {server}")
+                key = msg_stripped[1:comma_idx]
+
+                value = msg_stripped[comma_idx + 1:]
+                print(f"key:{key} value:{value}")
+                time = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
+                print(f"time is {time}")
+                success = insert_rxn(server, creator, key, value, time)
+                if success == 0:
+                    await message.reply("Reaction added!")
+                else:
+                    await message.reply("Error: value has already been added!")
+            else:
+                await message.reply("Syntax error.")
+        if args[0] == "$view":
+            if len(args) < 2:
+                await message.reply("Please specify all or a specific key.")
+                return
+            elif args[1] == "all":
+                pair_list = view_all_react()
+                await message.reply(pair_list)
+            else:
+                pair_list = view_react(args[1])
+                if not pair_list:
+                    await message.reply("This key is not present in the table.")
+                else:
+                    await message.reply(pair_list)
         if args[0] == "$roll":
             if len(args) == 1:
                 # error state: not enough arguments
@@ -41,7 +122,7 @@ class MyClient(discord.Client):
                 print(num_raw)
                 try:
                     num = int(num_raw)
-                    if num not in range(2,99):
+                    if num not in range(2, 99):
                         # value out of range
                         return
                     output = roll_die(num)
@@ -54,9 +135,9 @@ class MyClient(discord.Client):
 
         print('Message from {0.author}: {0.content}'.format(message))
 
-
-client = MyClient()
+intents = discord.Intents.default()
+intents.message_content = True
+client = MyClient(intents=intents)
 with open("first-bot-token.txt") as f:
     content = f.read()
 client.run(content)
-

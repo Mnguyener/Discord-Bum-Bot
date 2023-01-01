@@ -12,10 +12,10 @@ from table2ascii import table2ascii, PresetStyle # may not need
 con = sqlite3.connect("messages.db")
 cur = con.cursor()
 print("Connected to SQLite")
-cur.execute("""CREATE TABLE IF NOT EXISTS reactions (server INTEGER NOT NULL, creator INTEGER NOT NULL, key TEXT, 
-value TEXT NOT NULL UNIQUE, time DATETIME)""")
+cur.execute("""CREATE TABLE IF NOT EXISTS reactions (server INTEGER NOT NULL, creator INTEGER NOT NULL, key TEXT NOT NULL UNIQUE, 
+value TEXT, time DATETIME)""")
 
-def insert_rxn(_server, _creator, _key, _value, _time):
+def insert_rxn(_server, _creator, _key, _value, _time) -> int:
     try:
         cur.execute("""INSERT into reactions (server, creator, key, value, time) VALUES (?,?,?,?,?)""",
                     [_server, _creator, _key, _value, _time])  # tuple
@@ -42,14 +42,13 @@ def view_all_react() -> "list":
         for row in rows_returned:
             key_list.append(row)
         return key_list
-        output = table2ascii()
+        output = table2ascii() # oh
     except sqlite3.Error as error:
         print(error)
 
 def roll_die(e):
     if 99 >= e >= 2:
         return random.randrange(1, e + 1)  # rand num
-
 
 
 class MyClient(discord.Client):
@@ -62,16 +61,18 @@ class MyClient(discord.Client):
             response_list = ['nuts', img_of_nuts]
             await message.reply(random.choice(response_list))
 
-        if message.content.lower() == "l":
-            await message.reply("+ ratio")
-        # if message.content.lower().find("yo") != -1 or message.content.lower().find("joe") != -1:
-        #     await message.reply("mama")
-        # if message.content.lower().find("tomatos") != -1 or message.content.lower().find("tomato") != -1:
-        #     await message.reply("water spout")
-
         args = message.content.split()
         if len(args) == 0:
             return # ignore empty messages
+
+        for i in args:
+            result_set = cur.execute("""SELECT value FROM reactions WHERE key = ?""", [i])
+            total_list = result_set.fetchall()
+            if total_list:
+                rand = random.choice(total_list)[0]
+                await message.reply(rand)
+                return
+
         # adding reactions to the table
         if args[0] == "$add":
             msg_stripped = message.content[len("$add"):]

@@ -8,12 +8,15 @@ import sqlite3
 
 from datetime import datetime  # reference to the class instead of just the module
 
+import asyncio # for timeout error
+
 from table2ascii import table2ascii, PresetStyle # may not need
+
 con = sqlite3.connect("messages.db")
 cur = con.cursor()
 print("Connected to SQLite")
-cur.execute("""CREATE TABLE IF NOT EXISTS reactions (server INTEGER NOT NULL, creator INTEGER NOT NULL, key TEXT NOT NULL UNIQUE, 
-value TEXT, time DATETIME)""")
+cur.execute("""CREATE TABLE IF NOT EXISTS reactions (id INTEGER PRIMARY KEY AUTOINCREMENT, server INTEGER NOT NULL, creator INTEGER NOT NULL, key TEXT, 
+value TEXT, time DATETIME)""") # TODO: add note to commit that I changed the table schema
 
 def insert_rxn(_server, _creator, _key, _value, _time) -> int:
     try:
@@ -29,9 +32,9 @@ def insert_rxn(_server, _creator, _key, _value, _time) -> int:
 def view_react(_key) -> "list":
     try:
         key_list = []
-        rows_returned = cur.execute("""SELECT value FROM reactions WHERE key LIKE ?""", ["%" + _key + "%"])
+        rows_returned = cur.execute("""SELECT id, value FROM reactions WHERE key = ? """,[_key])
         for row in rows_returned:
-            key_list.append(row[0])
+            key_list.append(row)
         return key_list
     except sqlite3.Error as error:
         print(error)
@@ -65,14 +68,34 @@ class MyClient(discord.Client):
         if len(args) == 0:
             return # ignore empty messages
 
-        for i in args:
-            result_set = cur.execute("""SELECT value FROM reactions WHERE key = ?""", [i])
-            total_list = result_set.fetchall()
-            if total_list:
-                rand = random.choice(total_list)[0]
-                await message.reply(rand)
-                return
-
+        if args[0] == "$del":
+            if len(args) < 2: 
+                await message.reply("Please specify a key to delete.")
+            else:
+                result_set = cur.execute("""SELECT key, value FROM reactions WHERE key = ?""", [args[1]] )
+                return_list = result_set.fetchall()
+                view_list = view_react(args[1])
+                if return_list:
+                    if len(return_list) == 1:
+                        cur.execute("""DELETE FROM reactions WHERE key = ?""", [args[1]])
+                        await message.reply(f"The deletion of {return_list} was successful.")
+                    else:
+                        await message.reply (f"Please choose which number row to delete {view_list}")
+                        # This will make sure that the response will only be registered if the following
+                        # conditions are met:
+                        index_list = []
+                        for i in view_list: # assuming this is a tuple
+                                index = i[0]
+                                index_list.append(index)
+                        def check(msg):                        
+                            return int(msg.content) in index_list
+                        try:
+                            usr_msg = await client.wait_for("message", check=check, timeout=30)  # returns message OBJECT
+                            cur.execute("""DELETE FROM reactions WHERE id = ?""", [usr_msg.content])
+                            await message.reply(f"The deletion was successful.")
+                        except asyncio.TimeoutError:
+                            await message.reply("YOU DIDN'T REPLY IN TIME: L")
+                    
         # adding reactions to the table
         if args[0] == "$add":
             msg_stripped = message.content[len("$add"):]
@@ -107,6 +130,13 @@ class MyClient(discord.Client):
                     await message.reply("This key is not present in the table.")
                 else:
                     await message.reply(pair_list)
+        for i in args:
+            result_set = cur.execute("""SELECT value FROM reactions WHERE key = ?""", [i])
+            total_list = result_set.fetchall()
+            if total_list:
+                rand = random.choice(total_list)[0]
+                await message.reply(rand)
+                return
         if args[0] == "$roll":
             if len(args) == 1:
                 # error state: not enough arguments

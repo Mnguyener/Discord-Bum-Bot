@@ -1,2 +1,1 @@
 discord.py ~= 2.1.0
-sqlite3 ~= 3.40.1

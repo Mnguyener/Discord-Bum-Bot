@@ -10,14 +10,11 @@ from datetime import datetime  # reference to the class instead of just the modu
 
 import asyncio # for timeout error
 
-from table2ascii import table2ascii, PresetStyle # may not need
-
 con = sqlite3.connect("messages.db")
 cur = con.cursor()
 print("Connected to SQLite")
 cur.execute("""CREATE TABLE IF NOT EXISTS reactions (id INTEGER PRIMARY KEY AUTOINCREMENT, server INTEGER NOT NULL, c_id INTEGER NOT NULL, c_name INTEGER NOT NULL, key TEXT, 
 value TEXT, time DATETIME)""")
- # TODO: add note to commit that I changed the table schema
 
 def insert_rxn(_server, _c_id,_c_name, _key, _value, _time):
     try:
@@ -30,27 +27,22 @@ def insert_rxn(_server, _c_id,_c_name, _key, _value, _time):
     except sqlite3.Error as error:
         print(error)
         return 1
-def view_react(_key, _server) -> tuple:
+def view_react(_server, _key = None)-> tuple:
     try:
         key_list = []
-        rows_returned = cur.execute("""SELECT c_name, key, value FROM reactions WHERE key = ? AND server = ?""",[_key, _server])
-        for row in rows_returned:
-            key_list.append(row)
-        return key_list
-    except sqlite3.Error as error:
-        print(error)
-def view_all_react(_server) -> tuple:
-    try:
-        key_list = []
-        rows_returned = cur.execute("""SELECT c_name, key, value FROM reactions WHERE server = ?""", [_server])
-        if not rows_returned:
-            print("error no rows returned")
+        if _key:
+            result_set = cur.execute("""SELECT id, c_id, key, value, time FROM reactions WHERE key = ? AND server = ?""",[_key, _server])
+            rows_fetched = result_set.fetchall()
+        else:
+            result_set = cur.execute("""SELECT id, c_id, key, value, time FROM reactions WHERE server = ?""", [_server])
+            rows_fetched = result_set.fetchall()
+        if not rows_fetched:
             return
-        for row in rows_returned:
-            key_list.append(row)
-        return key_list
+        for row in rows_fetched:
+                key_list.append(row)
+        return key_list  
     except sqlite3.Error as error:
-        print(f"error in view_all: {error}")       
+        print(error)     
 
 def roll_die(e):
     if 99 >= e >= 2:
@@ -70,39 +62,56 @@ class MyClient(discord.Client):
         args = message.content.split()
         if len(args) == 0: # ignore empty messages
             return 
-
         if args[0] == "$del":
             if len(args) < 2: 
                 await message.reply("Please specify a key to delete.")
             else:
                 server = message.guild.id 
-                result_set = cur.execute("""SELECT key, value FROM reactions WHERE key = ? AND server = ?""", [args[1], server])
+                result_set = cur.execute("""SELECT id, key, value FROM reactions WHERE key = ? AND server = ?""", [args[1], server])
                 return_list = result_set.fetchall()
-                view_list = view_react(args[1], server)
+                view_list = view_react(server, args[1])
+                listings = ""
+               
                 if return_list:
                     if len(return_list) == 1:
                         cur.execute("""DELETE FROM reactions WHERE key = ? AND server = ?""", [args[1], server])
-                        await message.reply(f"The deletion of {return_list} was successful.")
+                        con.commit()  # save changes
+                        my_embed = discord.Embed(title="Deletion",
+                                         description=f"{return_list[0][1]}:{return_list[0][2]}",
+                                         colour=0xC0C0F2)
+                        await message.reply(embed=my_embed)
                     else:
-                        await message.reply (f"Please choose which number row to delete {view_list}")
+                        for pairs in view_list:
+                            print(pairs)
+                            listings += "[" + str(pairs[0]) + "] " + pairs[2] + ": " + pairs[3] +"\n"
+                        my_embed = discord.Embed(title="Choose which number row to delete.",
+                                         description=f"{listings}",
+                                         colour=0xC0C0F2)
+                        await message.reply (embed=my_embed)
                         # This will make sure that the response will only be registered if the following
                         # conditions are met:
                         index_list = []
-                        for i in view_list: # assuming this is a tuple
+                        for i in view_list: # this is a tuple
                                 index = i[0]
                                 index_list.append(index)
                         def check(msg):                        
                             return int(msg.content) in index_list
                         try:
                             usr_msg = await client.wait_for("message", check=check, timeout=30)  # returns message OBJECT
-                            deleted_row = cur.execute("""SELECT key, value FROM reactions WHERE id = ?""", [usr_msg.content])
-                            deleted = deleted_row.fetchall()
+                            row = cur.execute("""SELECT key, value FROM reactions WHERE id = ?""", [usr_msg.content])
+                            fetch_deleted = row.fetchall()
                             cur.execute("""DELETE FROM reactions WHERE id = ?""", [int(usr_msg.content)])
-                            await message.reply(f"The deletion of {deleted} was successful.")
+                            con.commit()  # save changes
+                            my_embed = discord.Embed(title="Deletion",
+                                         description=f"{fetch_deleted[0][0]}: {fetch_deleted[0][1]}",
+                                         colour=0xC0C0F2)
+                            await message.reply(embed=my_embed)
                         except asyncio.TimeoutError:
-                            await message.reply("YOU DIDN'T REPLY IN TIME: L")
+                            await message.reply("Deletion canceled: you timed out.")
                         except sqlite3.Error as error:
                             print(error)
+                else:
+                    await message.reply("The key could not be found in the table to delete.")
                     
         # adding reactions to the table
         if args[0] == "$add": 
@@ -116,7 +125,7 @@ class MyClient(discord.Client):
                 key = msg_stripped[1:comma_idx]
                 value = msg_stripped[comma_idx + 1:]
                 print(f"key:{key} value:{value}")
-                time = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
+                time = datetime.today().strftime("%a, %b %d, %Y")
                 print(f"time is {time}")
                 success = insert_rxn(server, c_id, c_name, key, value, time)
                 if success == 0:
@@ -127,36 +136,27 @@ class MyClient(discord.Client):
                 await message.reply("Syntax error.") 
         if args[0] == "$view": 
             server = message.guild.id
-            #TODO: use embeds to make it prettier
-            my_embed = discord.Embed(title="Available Pairings",
-                                         description="View all reaction pairings from this server!",
-                                         colour=0xd2e5d0)
             if len(args) < 2:
                 await message.reply("Please include 'all' or a specific key.")
                 return
             elif args[1] == "all":
-                pair_list = view_all_react(server)
-                if not pair_list:
-                    await message.reply("There are no reactions present in the table.")
-                for pairing in pair_list:
-                    # grab col: 1,2,3
-                    _c_name = pairing[0]
-                    _key = pairing[1]
-                    _val= pairing[2]
-                    my_embed.add_field(name=f"Creator: {_c_name}",value=f"{_key}:{_val}")
-                await message.reply(embed=my_embed)
+                pair_list = view_react(server) 
             else:
-                pair_list = view_react(args[1], server)
-                if not pair_list:
-                    await message.reply("This key is not present in the table.")
-                else:
-                    for pairing in pair_list:
-                        # grab col: 1,2,3
-                        _c_name = pairing[0]
-                        _key = pairing[1]
-                        _val= pairing[2]
-                        my_embed.add_field(name=f"Creator: {_c_name}",value=f"{_key}:{_val}")
-                    await message.reply(embed=my_embed)
+                pair_list = view_react(server, args[1])
+            if not pair_list:
+                await message.reply("Error: cannot be viewed in the table.")
+                return
+            listings = ""
+            for pairs in pair_list:
+                # grab col: 1,2,3,4
+                _c_id = str(pairs[1])
+                _key = pairs[2]
+                _val= pairs[3]
+                listings += "<@" +_c_id + ">\n" + "**" + _key + ":" + "**" + _val + "\n"
+            my_embed = discord.Embed(title="Available Pairings",
+                                        description=f"{listings}",
+                                        colour=0xd2e5d0)
+            await message.reply(embed=my_embed)
         # this is where the bot reacts
         for i in args: 
             usr_server_id = message.guild.id
